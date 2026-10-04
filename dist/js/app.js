@@ -1,8 +1,8 @@
 import { questions, validateQuestions } from './data.js';
 import { createAttempt, chooseAnswer, advance, retreat, score } from './state.js';
 import { loadProgress, saveProgress } from './storage.js';
-import { homeScreen, quizScreen, resultScreen, reviewScreen, aboutScreen } from './screens.js';
-import { mapSVG, stationList } from './map.js';
+import { homeScreen, quizScreen, resultScreen, reviewScreen } from './screens.js';
+import { mapSVG } from './map.js';
 import { mountAnimations, enterScreen } from './animation.js';
 validateQuestions();
 const model = loadProgress();
@@ -19,13 +19,13 @@ function navigate(route) {
 function render({ focus = true } = {}) {
   cleanupAnimation();
   let route = location.hash.slice(1) || 'home';
-  if (!['home','quiz','result','review','about'].includes(route) || (route === 'quiz' && (!model.attempt || model.attempt.completed)) || (['result','review'].includes(route) && !model.attempt?.completed)) {
+  if (!['home','quiz','result','review'].includes(route) || (route === 'quiz' && (!model.attempt || model.attempt.completed)) || (['result','review'].includes(route) && !model.attempt?.completed)) {
     route = 'home'; history.replaceState(null, '', '#home');
   }
   currentRoute = route;
-  const screens = { home: homeScreen, quiz: quizScreen, result: resultScreen, review: m => reviewScreen(m, errorsOnly), about: aboutScreen };
+  const screens = { home: homeScreen, quiz: quizScreen, result: resultScreen, review: m => reviewScreen(m, errorsOnly) };
   main.innerHTML = screens[route](model);
-  document.title = `${{home:'Харківський метрополітен: перевір себе',quiz:`Запитання ${model.attempt?.currentIndex+1} із 12`,result:'Твій результат',review:'Розбір відповідей',about:'Про тест і джерела'}[route]}${route==='home'?'':' · Метро Харкова'}`;
+  document.title = `${{home:'Харківський метрополітен: перевір себе',quiz:`Запитання ${model.attempt?.currentIndex+1} із 12`,result:'Твій результат',review:'Розбір відповідей'}[route]}${route==='home'?'':' · Метро Харкова'}`;
   if (focus) {
     window.scrollTo({top:0, behavior:'instant'});
     main.querySelector('#question-title, h1')?.focus({ preventScroll: true });
@@ -47,8 +47,7 @@ const actions = {
   },
   'filter-all'() {filter(false);},
   'filter-errors'() {filter(true);},
-  map(button) {openMap(false, button);},
-  original(button) {openMap(true, button);},
+  map(button) {openMap(button);},
   'close-dialog'() {dialog.close();}
 };
 function filter(value) {
@@ -72,15 +71,26 @@ main.addEventListener('change', e => {
   main.querySelectorAll('.progress-stop').forEach((stop,i) => stop.classList.toggle('answered', Boolean(model.attempt.answers[questions[i].id])));
   main.querySelector('.route-progress').setAttribute('aria-label', `Запитання ${model.attempt.currentIndex+1} із 12; відповіді: ${Object.keys(model.attempt.answers).length} із 12`);
 });
-function openMap(original, button) {
+function openMap(button) {
   returnFocus = button;
-  document.querySelector('#dialog-title').textContent = original ? 'Вихідна схема' : 'Схема метрополітену';
-  document.querySelector('#dialog-body').innerHTML = original ? '<img src="./assets/original-map.png" width="766" height="699" alt="Вихідна схема з попередніми назвами станцій та користувацькими помітками"><p class="small-note">Історичний референс із користувацькими помітками. Містить попередні назви станцій.</p>' : `${mapSVG('zoom')}<p class="small-note">На вузькому екрані схему можна прокручувати горизонтально.</p>${stationList()}`;
+  document.querySelector('#dialog-body').innerHTML = `${mapSVG('zoom')}<p class="small-note">На вузькому екрані схему можна прокручувати горизонтально.</p>`;
   dialog.showModal();
   document.body.classList.add('dialog-open');
   dialog.querySelector('[data-action="close-dialog"]').focus();
 }
-dialog.addEventListener('close', () => {document.body.classList.remove('dialog-open'); returnFocus?.focus(); returnFocus = null;});
+dialog.addEventListener('close', () => {
+  document.body.classList.remove('dialog-open');
+  document.querySelector('#dialog-body').replaceChildren();
+  returnFocus?.focus();
+  returnFocus = null;
+});
+dialog.addEventListener('keydown', event => {
+  if (event.key !== 'Tab') return;
+  const focusable = [...dialog.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(element => !element.disabled && element.getClientRects().length);
+  const first = focusable[0], last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+});
 dialog.addEventListener('click', e => {if(e.target===dialog){const rect=dialog.getBoundingClientRect();if(e.clientX<rect.left||e.clientX>rect.right||e.clientY<rect.top||e.clientY>rect.bottom)dialog.close();}});
 window.addEventListener('hashchange', () => {if(dialog.open)dialog.close();render();});
 render({ focus:false });
@@ -94,4 +104,3 @@ if (context?.registerTool) {
   add({ name:'advance_metro_test', title:'Наступне запитання', description:'Advance after selection; on question 12 complete the test and calculate its result.', inputSchema:{type:'object',properties:{},additionalProperties:false}, execute(){if(!model.attempt||model.attempt.completed)throw new Error('No active attempt.');actions.next();render();return model.attempt.completed?{status:'completed',result:score(model.attempt)}:{status:'in_progress',questionIndex:model.attempt.currentIndex+1};}});
   window.addEventListener('pagehide', () => lifecycle.abort(), {once:true});
 }
-
